@@ -1,3 +1,25 @@
+// Helper function to preserve all original URL parameters when modifying URL
+// This ensures tracking parameters (bbg_*, mb, account, angle, key, channel, etc.) are never lost
+function preserveUrlParams(url) {
+  // Restore original parameters from sessionStorage
+  const storedParams = sessionStorage.getItem("original_url_params");
+  if (storedParams) {
+    try {
+      const originalParams = JSON.parse(storedParams);
+      // Add all original parameters that aren't already in the URL
+      // This preserves tracking parameters that might have been lost
+      for (const [k, v] of Object.entries(originalParams)) {
+        if (!url.searchParams.has(k) && v != null && v !== "") {
+          url.searchParams.set(k, v);
+        }
+      }
+    } catch (e) {
+      console.error("Error preserving original params:", e);
+    }
+  }
+  return url;
+}
+
 // Function to extract domain and route from current URL
 function getDomainAndRoute() {
   const url = new URL(window.location.href);
@@ -46,41 +68,29 @@ async function fetchRouteData(domain, route) {
 }
 
 // Global variable to store ringbaID
-let ringbaID = "CAd4c016a37829477688c3482fb6fd01de"; // Fallback default
+let ringbaID = "CAcc4a256e46264286b5df5d7f461ab3ec"; // Fallback default
 
 // Fetch route data on page load
 (async function initRingbaID() {
   // Use the function to get domain and route from URL
   const { domain, route } = getDomainAndRoute();
 
-  console.log(
-    "TESTING - Fetching route data for domain:",
-    domain,
-    "route:",
-    route
-  );
-
   if (domain && route) {
     const apiData = await fetchRouteData(domain, route);
-    if (
-      apiData &&
-      apiData.success &&
-      apiData.routeData &&
-      apiData.routeData.ringbaID
-    ) {
-      ringbaID = apiData.routeData.ringbaID;
-      console.log("TESTING - RingbaID loaded from API:", ringbaID);
-    } else {
-      console.log("TESTING - Using fallback RingbaID:", ringbaID);
-    }
 
-    // Log all IDs for testing
     if (apiData && apiData.success && apiData.routeData) {
-      console.log("TESTING - API Response Data:");
-      console.log("  - ringbaID:", apiData.routeData.ringbaID);
-      console.log("  - phoneNumber:", apiData.routeData.phoneNumber);
-      console.log("  - rtkID:", apiData.routeData.rtkID);
+      // Log values from API
+      if (apiData.routeData.ringbaID) {
+        ringbaID = apiData.routeData.ringbaID;
+        console.log("ringbaID from API:", ringbaID);
+      } else {
+        console.log("ringbaID from fallback:", ringbaID);
+      }
+    } else {
+      console.log("ringbaID from fallback:", ringbaID);
     }
+  } else {
+    console.log("ringbaID from fallback:", ringbaID);
   }
 })();
 
@@ -184,6 +194,8 @@ let speed = 500;
 
 function updateAgeGroup(ageGroup) {
   let url = new URL(window.location.href);
+  // Preserve all original parameters first
+  url = preserveUrlParams(url);
   url.searchParams.delete("u65consumer");
   url.searchParams.delete("o65consumer");
   if (ageGroup === "under65") {
@@ -250,6 +262,8 @@ $("button.chat-button").on("click", function () {
     $("#userBlock_q2").removeClass("hidden");
 
     var newUrl = new URL(window.location.href); // Define the URL once
+    // Preserve all original parameters first
+    newUrl = preserveUrlParams(newUrl);
 
     if (buttonValue == "below 65") {
       $("#msg_under_q2").removeClass("hidden");
@@ -373,74 +387,108 @@ $("button.chat-button").on("click", function () {
     $("#userBlock_q3").removeClass("hidden");
 
     var newUrl = new URL(window.location.href); // Define the URL once
+    // Preserve all original parameters first
+    newUrl = preserveUrlParams(newUrl);
 
     if (buttonValue == "Yes") {
       $("#msg_yes_q3").removeClass("hidden");
 
       newUrl.searchParams.delete("qualified");
       newUrl.searchParams.set("qualified", "yes");
+
+      // Update the URL with the new qualified parameter
+      window.history.replaceState({}, "", newUrl);
+
+      // Load Ringba and call addRingbaTags after qualification
+      setTimeout(() => {
+        loadRingba();
+      }, 100);
+      scrollToBottom();
+
+      setTimeout(function () {
+        $("#agentBlock4").removeClass("hidden");
+        scrollToBottom();
+        setTimeout(function () {
+          $(".temp-typing").remove();
+          $("#msg13").removeClass("hidden").after(typingEffect());
+          scrollToBottom();
+          setTimeout(function () {
+            $(".temp-typing").remove();
+            $("#msg14").removeClass("hidden").after(typingEffect());
+            scrollToBottom();
+            setTimeout(function () {
+              $(".temp-typing").remove();
+              $("#msg15").removeClass("hidden").after(typingEffect());
+              scrollToBottom();
+              setTimeout(function () {
+                $(".temp-typing").remove();
+                // Show phone button for "Yes"
+                $("#msg17").before(typingEffect());
+                scrollToBottom();
+                setTimeout(function () {
+                  $(".temp-typing").remove();
+                  $("#msg17").removeClass("hidden");
+                  scrollToBottom();
+                  startCountdown();
+                }, 500);
+              }, speed);
+            }, speed);
+          }, speed);
+        }, speed);
+      }, speed);
     } else if (buttonValue == "No") {
       $("#msg_no_q3").removeClass("hidden");
 
       newUrl.searchParams.delete("qualified");
       newUrl.searchParams.set("qualified", "no");
 
-      // Show disqualification modal - non-dismissible
-      setTimeout(function () {
-        $("#disqualification-modal").addClass("show");
-        // Prevent body scroll when modal is open
-        document.body.style.overflow = "hidden";
-      }, speed);
-      
-      // Don't continue with the rest of the flow
+      // Update the URL with the new qualified parameter
       window.history.replaceState({}, "", newUrl);
+
+      // Show non-dismissible modal after showing user's response
+      setTimeout(function () {
+        const modal = document.getElementById("disqualification-modal");
+        if (modal) {
+          // Prevent body scroll
+          document.body.classList.add("modal-open");
+
+          // Show the modal
+          modal.classList.add("show");
+
+          // Prevent any clicks on the modal background from closing it
+          modal.addEventListener("click", function (e) {
+            e.stopPropagation();
+            e.preventDefault();
+            // Only allow clicks on the modal content itself
+            if (e.target === modal) {
+              e.stopPropagation();
+            }
+          });
+
+          // Prevent closing via ESC key
+          const escapeHandler = function (e) {
+            if (e.key === "Escape" || e.keyCode === 27) {
+              e.preventDefault();
+              e.stopPropagation();
+              e.stopImmediatePropagation();
+            }
+          };
+          document.addEventListener("keydown", escapeHandler, true);
+
+          // Prevent right-click context menu
+          modal.addEventListener("contextmenu", function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+          });
+
+          // Prevent any form of dismissal
+          modal.setAttribute("data-non-dismissible", "true");
+        }
+      }, 500);
+
+      // Exit early - don't continue with the normal flow
       return;
     }
-
-    // Load Ringba and call addRingbaTags after qualification
-    setTimeout(() => {
-      loadRingba();
-    }, 100);
-    scrollToBottom();
-
-    setTimeout(function () {
-      $("#agentBlock4").removeClass("hidden");
-      scrollToBottom();
-      setTimeout(function () {
-        $(".temp-typing").remove();
-        $("#msg13").removeClass("hidden").after(typingEffect());
-        scrollToBottom();
-        setTimeout(function () {
-          $(".temp-typing").remove();
-          $("#msg14").removeClass("hidden").after(typingEffect());
-          scrollToBottom();
-            setTimeout(function () {
-              $(".temp-typing").remove();
-              // Only show messages if user answered "Yes"
-              if (buttonValue == "Yes") {
-                $("#msg15").removeClass("hidden").after(typingEffect());
-                scrollToBottom();
-                setTimeout(function () {
-                  $(".temp-typing").remove();
-                  // Show phone button for "Yes"
-                  $("#msg17").before(typingEffect());
-                  scrollToBottom();
-                  setTimeout(function () {
-                    $(".temp-typing").remove();
-                    $("#msg17").removeClass("hidden");
-                    scrollToBottom();
-                    startCountdown();
-                  }, 500);
-                }, speed);
-              }
-              // If "No", modal is already shown and flow is stopped
-            }, speed);
-        }, speed);
-      }, speed);
-    }, speed);
-
-    // Update the URL with the new qualified parameter
-    window.history.replaceState({}, "", newUrl);
   }
 });
 
@@ -667,30 +715,3 @@ if (document.readyState === "loading") {
     });
   }
 }
-
-// Prevent modal from being closed - make it non-dismissible
-$(document).ready(function() {
-  // Prevent clicks on modal overlay from closing it
-  $("#disqualification-modal").on("click", function(e) {
-    e.stopPropagation();
-    // Only allow clicks on the modal content itself, not the overlay
-    if (e.target === this) {
-      e.preventDefault();
-      return false;
-    }
-  });
-
-  // Prevent ESC key from closing modal
-  $(document).on("keydown", function(e) {
-    if (e.key === "Escape" && $("#disqualification-modal").hasClass("show")) {
-      e.preventDefault();
-      e.stopPropagation();
-      return false;
-    }
-  });
-
-  // Prevent any other attempts to close the modal
-  $("#disqualification-modal .modal-content").on("click", function(e) {
-    e.stopPropagation();
-  });
-});
